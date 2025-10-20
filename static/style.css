@@ -1,0 +1,100 @@
+/* Body & background */
+body {
+  background: #121212;
+  color: #eee;
+  min-height: 100vh;
+  margin: 0;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+/* Particles container */
+#particles-js {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: 0; /* behind content */
+  pointer-events: none;
+}
+
+/* Main container above particles */
+.container {
+  position: relative;
+  z-index: 1;
+}
+
+/* Cards */
+.card {
+  background: #1e1e1e;
+  color: #eee;
+  border: none;
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+}
+
+/* Headings */
+h1, h5, h6 {
+  color: #fff;
+}
+
+/* Badges */
+.badge-phish {
+  background: #ff4c4c;
+  color: #fff;
+  font-weight: 500;
+  border-radius: 1rem;
+  transition: all 0.5s ease;
+}
+.badge-legit {
+  background: #4caf50;
+  color: #fff;
+  font-weight: 500;
+  border-radius: 1rem;
+  transition: all 0.5s ease;
+}
+
+/* Progress bars */
+.progress-bar.low { background: #4caf50; transition: width 1s ease-in-out; }
+.progress-bar.medium { background: #ff9800; transition: width 1s ease-in-out; }
+.progress-bar.high { background: #ff4c4c; transition: width 1s ease-in-out; }
+
+/* URL highlight */
+mark { background-color: #ffeb3b; color: #000; }
+
+/* Inputs */
+input.form-control, .form-check-label {
+  background: #2c2c2c;
+  color: #fff !important;
+  border: 1px solid #444;
+}
+
+input::placeholder {
+  color: #fff !important;
+  opacity: 1;
+}
+
+/* Table dark */
+table.table-dark th, table.table-dark td {
+  border-color: #333;
+}
+
+input.form-control {
+    background: #2c2c2c !important;  /* dark background */
+    color: #fff !important;           /* typed text color */
+    border: 1px solid #444;
+}
+
+/* Placeholder text */
+input.form-control::placeholder {
+    color: #fff !important;           /* placeholder visible */
+    opacity: 0.7;
+}
+
+/* Optional: focus highlight */
+input.form-control:focus {
+    background: #2c2c2c;
+    color: #fff;
+    border-color: #4caf50;
+    box-shadow: 0 0 5px #4caf50;
+}

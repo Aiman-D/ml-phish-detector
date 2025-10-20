@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Phishing URL Detector</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <!-- Subtle particles background -->
+  <div id="particles-js"></div>
+
+  <div class="container py-4">
+    <h1 class="mb-3">Phishing URL Detector</h1>
+
+    <!-- URL Input Card -->
+    <div class="card mb-3 p-3">
+      <form method="POST">
+        <div class="mb-2">
+          <input type="text" name="url_input" class="form-control" placeholder="Enter a URL (e.g. http://example.com)" required>
+        </div>
+
+        {% if error_msg %}
+        <div class="alert alert-warning mt-2">{{ error_msg }}</div>
+        {% endif %}
+
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="useML" name="use_ml" {% if use_ml %}checked{% endif %}>
+          <label class="form-check-label" for="useML">Use ML Model</label>
+        </div>
+
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary" type="submit">Check URL</button>
+          <button class="btn btn-outline-secondary" type="submit" onclick="document.getElementById('download').value='1'">Download History CSV</button>
+        </div>
+        <input type="hidden" id="download" name="download" value="0">
+      </form>
+    </div>
+
+    <!-- Results Card -->
+    {% if result %}
+    <div class="card p-3 mb-3">
+      <h5>Results</h5>
+      <p>
+        <strong>Rule-based:</strong>
+        <span class="{{ 'badge-phish' if result.label=='phishing' else 'badge-legit' }}" 
+              data-bs-toggle="tooltip" 
+              title="Rule-based detection uses numeric heuristics.">{{ result.label.capitalize() }}</span>
+        (score: {{ result.score }})
+      </p>
+
+      {% if ml_label %}
+      <p>
+        <strong>ML Prediction:</strong>
+        <span class="{{ 'badge-phish' if ml_label=='Phishing' else 'badge-legit' }}"
+              data-bs-toggle="tooltip"
+              title="Machine Learning model prediction based on URL features.">{{ ml_label }} — {{ ml_conf }}%</span>
+      </p>
+      <div class="progress mb-2" style="height:18px; max-width:360px;">
+        {% set level = 'low' %}
+        {% if ml_conf >= 50 and ml_conf < 75 %}{% set level = 'medium' %}{% endif %}
+        {% if ml_conf >= 75 %}{% set level = 'high' %}{% endif %}
+        <div class="progress-bar {{ level }}" role="progressbar" style="width: 0%;" 
+             aria-valuenow="{{ ml_conf }}" aria-valuemin="0" aria-valuemax="100" id="mlBar">{{ ml_conf }}%</div>
+      </div>
+      {% endif %}
+
+      <p><strong>Reasons:</strong></p>
+      <ul>
+        {% for r in result.reasons %}
+        <li data-bs-toggle="tooltip" title="{{ r }}">{{ r }}</li>
+        {% endfor %}
+      </ul>
+
+      <p><strong>Highlighted URL parts:</strong></p>
+      <p>
+        {% for part, suspicious in highlights %}
+          {% if suspicious %}
+            <mark data-bs-toggle="tooltip" title="Suspicious part">{{ part }}</mark>
+          {% else %}
+            <span>{{ part }}</span>
+          {% endif %}
+        {% endfor %}
+      </p>
+
+      <p>
+        <strong>URL:</strong> {{ result.url }}
+        <button class="btn btn-sm btn-outline-secondary" onclick="copyURL('{{ result.url }}')">Copy</button>
+      </p>
+    </div>
+    {% endif %}
+
+    <!-- History & Analytics -->
+    <div class="row">
+      <div class="col-md-7">
+        <div class="card p-3 mb-3">
+          <h5>History (last {{ history|length }})</h5>
+          <table class="table table-sm table-dark">
+            <thead><tr><th>Time</th><th>URL</th><th>Rule</th><th>ML</th></tr></thead>
+            <tbody>
+              {% for h in history %}
+              <tr>
+                <td style="white-space:nowrap">{{ h.time }}</td>
+                <td style="max-width:360px; word-break:break-word">{{ h.url }}</td>
+                <td>{{ h.rule_label }}</td>
+                <td>{{ h.ml_label }} {% if h.ml_conf %}({{ h.ml_conf }}%) {% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="col-md-5">
+        <div class="card p-3 mb-3">
+          <h5>Analytics</h5>
+          <p>Total checks: <strong>{{ total }}</strong></p>
+          <p>Rule-based flagged phishing: <strong>{{ phish_count }}</strong></p>
+          <p>ML predicted phishing: <strong>{{ ml_phish }}</strong></p>
+        </div>
+
+        <div class="card p-3">
+          <h6>Model notes</h6>
+          <p class="small text-light">Model uses handcrafted numeric features → RandomForest. Re-train to update. Animated bars, badges, and tooltips added.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phishing Trend Chart -->
+    <div class="card p-3 mb-3 mt-3">
+      <h5>Phishing Trend Over Time</h5>
+      <canvas id="phishTrendChart" height="150"></canvas>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    // Particles
+    particlesJS("particles-js", {
+      "particles": { "number": { "value": 20 }, "size": { "value": 2 }, "color": { "value": "#ffffff" },
+        "line_linked": { "enable": true, "distance": 100, "color": "#ffffff", "opacity": 0.1, "width": 1 },
+        "move": { "enable": true, "speed": 1.5 }
+      }
+    });
+
+    // Tooltips
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) });
+
+    // Copy URL
+    function copyURL(url) {
+      navigator.clipboard.writeText(url);
+      alert("URL copied to clipboard!");
+    }
+
+    // Animate ML progress bar
+    const mlBar = document.getElementById('mlBar');
+    if (mlBar) {
+      let width = 0;
+      const target = mlBar.getAttribute('aria-valuenow');
+      const interval = setInterval(() => {
+        if (width >= target) clearInterval(interval);
+        mlBar.style.width = width + '%';
+        width++;
+      }, 10);
+    }
+
+    // Chart.js: Phishing Trend
+    const ctxTrend = document.getElementById('phishTrendChart').getContext('2d');
+    new Chart(ctxTrend, {
+        type: 'line',
+        data: {
+            labels: {{ history_times|tojson }},
+            datasets: [
+                { label: 'Rule-based Phishing', data: {{ history_rule_labels|tojson }}, borderColor: 'rgba(255,99,132,0.8)', backgroundColor: 'rgba(255,99,132,0.2)', tension: 0.3 },
+                { label: 'ML Phishing', data: {{ history_ml_labels|tojson }}, borderColor: 'rgba(54,162,235,0.8)', backgroundColor: 'rgba(54,162,235,0.2)', tension: 0.3 }
+            ]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+    });
+  </script>
+</body>
+</html>
