@@ -1,4 +1,3 @@
-# phish_detect.py
 import re
 from urllib.parse import urlparse
 import os, pickle, math
@@ -7,9 +6,8 @@ from collections import Counter
 MODEL_PATH = "data/model.pkl"
 _pipeline = None  # lazy-loaded pipeline
 
-# ---------- Feature extraction (per single URL) ----------
+# ---------- Feature extraction ----------
 def extract_features(url: str):
-    """Return dict of handcrafted features for a single URL."""
     s = url if url.startswith(("http://","https://")) else "http://" + url
     parsed = urlparse(s)
     host = parsed.hostname or ""
@@ -33,15 +31,10 @@ def extract_features(url: str):
         'path_entropy': ent
     }
 
-# ---------- FunctionTransformer-compatible function ----------
+# ---------- For ML pipeline ----------
 def handcrafted_features(urls):
-    """
-    Accepts an iterable of URLs and returns a list of dicts (one dict per URL).
-    This function must be importable by name (so pipelines referencing it can be unpickled).
-    """
     return [extract_features(u) for u in urls]
 
-# ---------- Lazy pipeline loader ----------
 def load_pipeline():
     global _pipeline
     if _pipeline is not None:
@@ -58,7 +51,7 @@ def load_pipeline():
         print("⚠️ No ML pipeline found at", MODEL_PATH)
     return _pipeline
 
-# ---------- Rule-based classifier ----------
+# ---------- Rule-based ----------
 def rule_score(url: str):
     f = extract_features(url)
     score = 0
@@ -86,32 +79,25 @@ def rule_score(url: str):
     label = "phishing" if score >= 2 else "legitimate"
     return {'url': url, 'score': score, 'label': label, 'reasons': reasons, 'features': f}
 
-# ---------- ML predict using saved pipeline ----------
+# ---------- ML Prediction ----------
 def ml_predict(url: str):
-    """
-    Returns (label_str, confidence_float) or (None, None) if ML pipeline not available.
-    Label strings: 'Phishing' or 'Legitimate'
-    """
     pipe = load_pipeline()
     if pipe is None:
         return None, None
-
     try:
-        # Our pipeline expects raw URLs (FunctionTransformer -> DictVectorizer -> clf)
         probs = pipe.predict_proba([url])[0]
         pred = pipe.predict([url])[0]
     except Exception:
-        # fallback: transform manually using handcrafted_features
         feats = handcrafted_features([url])
         probs = pipe.predict_proba(feats)[0]
         pred = pipe.predict(feats)[0]
 
     if pred == 1:
-        return "Phishing", round(float(probs[1]) * 100, 1)
+        return "Phishing", round(float(probs[1])*100, 1)
     else:
-        return "Legitimate", round(float(probs[0]) * 100, 1)
+        return "Legitimate", round(float(probs[0])*100, 1)
 
-# ---------- helper to highlight suspicious segments ----------
+# ---------- Highlight suspicious parts ----------
 def highlight_suspicious_parts(url: str):
     tokens = []
     suspicious_words = ['login','secure','verify','account','update','confirm']

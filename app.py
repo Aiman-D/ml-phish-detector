@@ -1,7 +1,6 @@
-# app.py
 from flask import Flask, render_template, request, make_response
 import phish_detect
-import io, csv, datetime,re
+import io, csv, datetime, re, json
 from urllib.parse import urlparse
 
 app = Flask(__name__, static_folder="static")
@@ -9,24 +8,40 @@ app = Flask(__name__, static_folder="static")
 HISTORY = []
 MAX_HISTORY = 200
 
+def is_valid_url(url: str) -> bool:
+    """
+    Stricter-but-flexible validation:
+    - Accept if hostname contains a dot (example.com) or is an IPv4 address.
+    - If hostname has no dot, accept only when the user included an explicit scheme
+      (http:// or https://) and there is a path (e.g. http://paypal/free/...)
+    - Reject plain inputs like "abcd" (no scheme, no dot).
+    """
+    if not isinstance(url, str) or not url.strip():
+        return False
 
-
-def is_suspicious_url(url):
-    """Detect suspicious patterns: IP in host, long URL, many digits, multiple subdomains."""
-    s = url if url.startswith(("http://", "https://")) else "http://" + url
+    original = url
+    has_scheme = url.lower().startswith(("http://", "https://"))
+    s = url if has_scheme else "http://" + url
     parsed = urlparse(s)
     host = parsed.hostname or ""
-    
-    has_ip = bool(re.fullmatch(r'\d{1,3}(\.\d{1,3}){3}', host))
-    long_url = len(url) > 75
-    many_digits = sum(c.isdigit() for c in url) > 4
-    lots_of_subdomains = host.count('.') > 2
-    
-    return has_ip or long_url or many_digits or lots_of_subdomains
 
-# -----------------------------
-# Main Route
-# -----------------------------
+    # IP address check
+    ip_match = re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', host)
+
+    # If host contains a dot or is IP -> accept
+    if '.' in host or ip_match:
+        return True
+
+    # If host has no dot: accept only when user explicitly provided scheme and there is a path
+    if has_scheme and host and parsed.path:
+        return True
+
+    # If there's no host but path starts with '/', allow (cases like http://127.0.0.1/ handled above)
+    if not host and parsed.path and parsed.path.startswith('/'):
+        return True
+
+    return False
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     result = None
@@ -39,20 +54,17 @@ def index():
     if request.method == "POST":
         url_input = request.form.get("url_input", "").strip()
         use_ml = "use_ml" in request.form
-        
-        result, ml_label, ml_conf, highlights = None, None, None, None
 
         if not url_input:
             error_msg = "⚠️ Please enter a URL."
-        elif not phish_detect.is_valid_url(url_input):
+        elif not is_valid_url(url_input):
             error_msg = "⚠️ Invalid URL. Please enter a proper URL (e.g., http://example.com)."
         else:
-            # Run rule-based detection
+            # Rule-based detection
             result = phish_detect.rule_score(url_input)
             highlights = phish_detect.highlight_suspicious_parts(url_input)
 
-            # Run ML prediction if enabled
-            ml_label, ml_conf = None, None
+            # ML prediction
             if use_ml:
                 ml_label, ml_conf = phish_detect.ml_predict(url_input)
 
@@ -87,10 +99,16 @@ def index():
     total = len(HISTORY)
     phish_count = sum(1 for h in HISTORY if h['rule_label']=='phishing')
     ml_phish = sum(1 for h in HISTORY if h.get('ml_label') == 'Phishing')
-    
+
+    # Chart data
     history_times = [h["time"] for h in HISTORY]
     history_rule_labels = [1 if h["rule_label"]=="phishing" else 0 for h in HISTORY]
     history_ml_labels = [1 if h.get("ml_label")=="Phishing" else 0 for h in HISTORY]
+
+    # JSON-safe versions for embedding in template (use | safe in template)
+    history_times_json = json.dumps(history_times)
+    history_rule_labels_json = json.dumps(history_rule_labels)
+    history_ml_labels_json = json.dumps(history_ml_labels)
 
     return render_template(
         "index.html",
@@ -98,14 +116,13 @@ def index():
         highlights=highlights, history=HISTORY, total=total,
         phish_count=phish_count, ml_phish=ml_phish, use_ml=use_ml,
         history_times=history_times, history_rule_labels=history_rule_labels,
-        history_ml_labels=history_ml_labels, error_msg=error_msg
+        history_ml_labels=history_ml_labels, error_msg=error_msg,
+        history_times_json=history_times_json,
+        history_rule_labels_json=history_rule_labels_json,
+        history_ml_labels_json=history_ml_labels_json
     )
 
-#if __name__ == "__main__":
-    #app.run(debug=True)
-    
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
