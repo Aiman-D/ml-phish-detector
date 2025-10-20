@@ -1,7 +1,7 @@
 # app.py
 from flask import Flask, render_template, request, make_response
 import phish_detect
-import io, csv, datetime
+import io, csv, datetime,re
 from urllib.parse import urlparse
 
 app = Flask(__name__, static_folder="static")
@@ -9,17 +9,7 @@ app = Flask(__name__, static_folder="static")
 HISTORY = []
 MAX_HISTORY = 200
 
-# -----------------------------
-# URL Validation and Suspicion
-# -----------------------------
-def is_valid_url(url):
-    """Basic URL validity check: scheme and netloc must exist."""
-    url = url.strip()
-    if not url:
-        return False
-    s = url if url.startswith(("http://", "https://")) else "http://" + url
-    parsed = urlparse(s)
-    return bool(parsed.scheme) and bool(parsed.netloc)
+
 
 def is_suspicious_url(url):
     """Detect suspicious patterns: IP in host, long URL, many digits, multiple subdomains."""
@@ -49,10 +39,12 @@ def index():
     if request.method == "POST":
         url_input = request.form.get("url_input", "").strip()
         use_ml = "use_ml" in request.form
+        
+        result, ml_label, ml_conf, highlights = None, None, None, None
 
         if not url_input:
             error_msg = "⚠️ Please enter a URL."
-        elif not is_valid_url(url_input):
+        elif not phish_detect.is_valid_url(url_input):
             error_msg = "⚠️ Invalid URL. Please enter a proper URL (e.g., http://example.com)."
         else:
             # Run rule-based detection
