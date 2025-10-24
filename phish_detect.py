@@ -1,30 +1,14 @@
 import re
 from urllib.parse import urlparse
-import os, pickle, math
+import math
 from collections import Counter
 import numpy as np
-
-MODEL_PATH = "data/model.pkl"
-
-# ---------- Load ML pipeline ----------
-_pipeline = None
-if os.path.exists(MODEL_PATH):
-    try:
-        with open(MODEL_PATH, "rb") as f:
-            _pipeline = pickle.load(f)
-        # Store expected features for validation
-        _expected_features = _pipeline.n_features_in_
-        print(f"✅ ML pipeline loaded from {MODEL_PATH}. Expects {_expected_features} features.")
-    except Exception as e:
-        print("⚠️ Failed to load ML pipeline:", e)
-        _expected_features = 0
-else:
-    print("⚠️ No ML pipeline found at", MODEL_PATH)
-    _expected_features = 0
+import os # Keep os for re.fullmatch
 
 # -------------------------------------------------------------
-# ---------- FEATURE EXTRACTION (7 Features)
+# ---------- FEATURE EXTRACTION (The 7 consistent features)
 # -------------------------------------------------------------
+# This function must match the training script exactly.
 def extract_features(url: str):
     # 1. Standardize the URL for parsing
     s = url if url.startswith(("http://","https://")) else "http://" + url
@@ -37,7 +21,7 @@ def extract_features(url: str):
     # Strip common prefixes for standardized feature calculation
     normalized_host = host.lower()
     if normalized_host.startswith('www.'):
-        normalized_host = normalized_host[4:] # Remove 'www.' for better comparison
+        normalized_host = normalized_host[4:] # Remove 'www.'
     
     # 2. Derive the base string for calculating overall URL features
     base_url_string = normalized_host + path 
@@ -46,7 +30,7 @@ def extract_features(url: str):
     len_url = len(base_url_string) 
     len_host = len(normalized_host) # Use normalized length
     count_digits = sum(c.isdigit() for c in base_url_string) 
-    # Recalculate subdomains using the original host (or normalized host)
+    # Recalculate subdomains based on normalized host
     subdomains = max(0, normalized_host.count('.') - 1)
     
     # Path Entropy
@@ -65,22 +49,22 @@ def extract_features(url: str):
     ]
 
 # -------------------------------------------------------------
-# ---------- ML Prediction (Uses the 7 features above)
+# ---------- ML Prediction (Accepts 'pipeline' as an argument)
 # -------------------------------------------------------------
-def ml_predict(url: str):
-    if _pipeline is None:
-        return None, 0 # Changed "n/a" to None for template check
+def ml_predict(url: str, pipeline):
+    """
+    Predicts if a URL is phishing or legitimate using the provided pipeline.
+    'pipeline' is the loaded scikit-learn model object.
+    """
+    if pipeline is None:
+        # This will be triggered if the model failed to load in app.py
+        return "n/a", 0
     try:
         # Extract the 7 features
         features = np.array([extract_features(url)]) 
-        
-        # Validate feature count
-        if _expected_features != features.shape[1]:
-            print(f"⚠️ Feature count mismatch: Model expects {_expected_features} features, but input has {features.shape[1]}.")
-            return "n/a", 0
             
-        pred = _pipeline.predict(features)[0]
-        probs = _pipeline.predict_proba(features)[0]
+        pred = pipeline.predict(features)[0]
+        probs = pipeline.predict_proba(features)[0]
         
         # PhiUSIIL labels: 1 is legitimate, 0 is phishing
         if pred == 1:
@@ -89,23 +73,19 @@ def ml_predict(url: str):
             return "Phishing", round(float(probs[0]) * 100, 1)
             
     except Exception as e:
-        print("⚠️ ML prediction error:", e)
+        print(f"⚠️ ML prediction error: {e}")
         return "n/a", 0
 
 # -------------------------------------------------------------
-# ---------- Rule-based detection 
+# ---------- Rule-based detection (No Change)
 # -------------------------------------------------------------
 def rule_score(url: str):
-    """
-    Calculates a phishing score based on lexical rules.
-    This logic MUST mirror the feature extraction logic for feature calculation.
-    """
     s = url if url.startswith(("http://","https://")) else "http://" + url
     parsed = urlparse(s)
     host = parsed.hostname or ""
     path = (parsed.path or "") + ("?" + parsed.query if parsed.query else "")
 
-    # Recalculate features
+    # Re-calculate features for local use in this function
     len_url = len(url)
     len_host = len(host)
     count_digits = sum(c.isdigit() for c in url)
@@ -156,7 +136,7 @@ def rule_score(url: str):
     }
 
 # -------------------------------------------------------------
-# ---------- Highlight suspicious parts 
+# ---------- Highlight suspicious parts (No Change)
 # -------------------------------------------------------------
 def highlight_suspicious_parts(url: str):
     tokens = []

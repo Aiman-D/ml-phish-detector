@@ -1,25 +1,65 @@
-from flask import Flask, render_template, request, make_response
+import os, pickle
+from flask import Flask, render_template, request, make_response, jsonify
+from flask_cors import CORS
 import phish_detect
 import io, csv, datetime, re, json
 from urllib.parse import urlparse
+import sys
 
+# --- Model Loading Configuration ---
+_pipeline = None
+MODEL_PATH = None
+MAX_HISTORY = 200
+
+# -----------------------------------------------------------------
+# ---------- Load ML pipeline (Robust Absolute Path Fix) ----------
+# -----------------------------------------------------------------
+# This logic loads the model from the 'data' folder relative to this script.
+try:
+    # Start from the current file's directory (app.py)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Walk up the tree until the project root is likely found
+    # (We assume the project root is the directory containing the 'data' folder)
+    path_check = current_dir
+    for _ in range(5): # Check up to 5 parent directories
+        potential_path = os.path.join(path_check, "data", "model.pkl")
+        if os.path.exists(potential_path):
+            MODEL_PATH = potential_path
+            break
+        # Move up one directory level
+        path_check = os.path.dirname(path_check)
+        if path_check == "/": # Stop at the system root
+            break
+
+    if MODEL_PATH and os.path.exists(MODEL_PATH):
+        try:
+            with open(MODEL_PATH, "rb") as f:
+                _pipeline = pickle.load(f)
+            print(f"✅ ML pipeline loaded successfully from: {MODEL_PATH}")
+        except Exception as e:
+            print(f"⚠️ Failed to load ML pipeline: {e}")
+    else:
+        print(f"⚠️ No ML pipeline found. Tried path relative to: {current_dir}")
+except Exception as e_path:
+     print(f"⚠️ Error during path finding: {e_path}")
+
+
+# --- Flask App Initialization ---
 app = Flask(__name__, static_folder="static")
+CORS(app) # Enable CORS for all routes
 
 HISTORY = []
-MAX_HISTORY = 200
+
 
 def is_valid_url(url: str) -> bool:
     """
     Stricter-but-flexible validation:
     - Accept if hostname contains a dot (example.com) or is an IPv4 address.
-    - If hostname has no dot, accept only when the user included an explicit scheme
-      (http:// or https://) and there is a path (e.g. http://paypal/free/...)
-    - Reject plain inputs like "abcd" (no scheme, no dot).
     """
     if not isinstance(url, str) or not url.strip():
         return False
 
-    original = url
     has_scheme = url.lower().startswith(("http://", "https://"))
     s = url if has_scheme else "http://" + url
     parsed = urlparse(s)
@@ -36,11 +76,34 @@ def is_valid_url(url: str) -> bool:
     if has_scheme and host and parsed.path:
         return True
 
-    # If there's no host but path starts with '/', allow (cases like http://127.0.0.1/ handled above)
-    if not host and parsed.path and parsed.path.startswith('/'):
-        return True
-
     return False
+
+# --- API Endpoint for Extension ---
+@app.route("/predict", methods=["POST"])
+def predict():
+    """API endpoint for the browser extension or external tools."""
+    data = request.get_json()
+    url_input = data.get("url", "").strip()
+
+    if not url_input or not is_valid_url(url_input):
+        return jsonify({"error": "Invalid URL provided"}), 400
+
+    # 1. Rule-based detection
+    rule_data = phish_detect.rule_score(url_input)
+
+    # 2. ML prediction (PASS THE LOADED MODEL)
+    ml_label, ml_conf = phish_detect.ml_predict(url_input, _pipeline)
+    
+    # Assemble and return the results
+    return jsonify({
+        "url": url_input,
+        "rule_label": rule_data['label'],
+        "rule_score": rule_data['score'],
+        "reasons": rule_data['reasons'],
+        "ml_label": ml_label,
+        "ml_conf": ml_conf,
+    })
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -64,9 +127,9 @@ def index():
             result = phish_detect.rule_score(url_input)
             highlights = phish_detect.highlight_suspicious_parts(url_input)
 
-            # ML prediction
+            # ML prediction (PASS THE LOADED MODEL)
             if use_ml:
-                ml_label, ml_conf = phish_detect.ml_predict(url_input)
+                ml_label, ml_conf = phish_detect.ml_predict(url_input, _pipeline)
 
             # Add entry to history
             entry = {
@@ -97,15 +160,15 @@ def index():
 
     # Analytics
     total = len(HISTORY)
-    phish_count = sum(1 for h in HISTORY if h['rule_label']=='phishing')
+    phish_count = sum(1 for h in HISTORY if h['rule_label']=='Phishing')
     ml_phish = sum(1 for h in HISTORY if h.get('ml_label') == 'Phishing')
 
     # Chart data
     history_times = [h["time"] for h in HISTORY]
-    history_rule_labels = [1 if h["rule_label"]=="phishing" else 0 for h in HISTORY]
+    history_rule_labels = [1 if h["rule_label"]=="Phishing" else 0 for h in HISTORY]
     history_ml_labels = [1 if h.get("ml_label")=="Phishing" else 0 for h in HISTORY]
 
-    # JSON-safe versions for embedding in template (use | safe in template)
+    # JSON-safe versions for embedding in template
     history_times_json = json.dumps(history_times)
     history_rule_labels_json = json.dumps(history_rule_labels)
     history_ml_labels_json = json.dumps(history_ml_labels)
@@ -115,14 +178,14 @@ def index():
         result=result, ml_label=ml_label, ml_conf=ml_conf,
         highlights=highlights, history=HISTORY, total=total,
         phish_count=phish_count, ml_phish=ml_phish, use_ml=use_ml,
-        history_times=history_times, history_rule_labels=history_rule_labels,
-        history_ml_labels=history_ml_labels, error_msg=error_msg,
         history_times_json=history_times_json,
         history_rule_labels_json=history_rule_labels_json,
-        history_ml_labels_json=history_ml_labels_json
+        history_ml_labels_json=history_ml_labels_json,
+        error_msg=error_msg
     )
 
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+    # Note: On Render, the host must be 0.0.0.0 for external access
+    app.run(host="0.0.0.0", port=port, debug=True) # Added debug=True for better local testing
