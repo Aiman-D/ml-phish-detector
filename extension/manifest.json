@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Accurate Phishing Detector",
+  "version": "2.1",
+  "description": "Uses a trained ML model to instantly check URLs for phishing characteristics.",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon16.png"
+  },
+  "permissions": [
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://ml-phish-detector.onrender.com/*",
+    "https://*.onrender.com/*"
+  ]
+}
