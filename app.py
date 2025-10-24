@@ -1,11 +1,12 @@
 import os, pickle
 from flask import Flask, render_template, request, make_response, jsonify
-from flask_cors import CORS # Ensure this is imported
+from flask_cors import CORS
 import phish_detect
 import io, csv, datetime, re, json
 from urllib.parse import urlparse
 import sys
-import traceback # Import for detailed error logging
+import traceback 
+import numpy as np # Import numpy
 
 # --- Model Loading Configuration ---
 _pipeline = None
@@ -34,11 +35,7 @@ except Exception as e_path: print(f"⚠️ Error during path finding: {e_path}")
 
 # --- Flask App Initialization ---
 app = Flask(__name__, static_folder="static")
-
-# --- SIMPLIFIED CORS INITIALIZATION ---
-# Let Flask-CORS handle the defaults, which are often more robust.
-CORS(app) 
-# ------------------------------------
+CORS(app) # Use simple CORS
 
 HISTORY = []
 
@@ -53,10 +50,10 @@ def is_valid_url(url: str) -> bool:
     if has_scheme and host and parsed.path: return True
     return False
 
-# --- API Endpoint for Extension (with Error Logging) ---
-@app.route("/predict", methods=["POST"]) # No OPTIONS needed explicitly with simple CORS(app)
+# --- API Endpoint for Extension (with Error Logging & List Conversion) ---
+@app.route("/predict", methods=["POST"]) 
 def predict():
-    try: # --- ADDED TRY BLOCK ---
+    try: 
         data = request.get_json()
         if not data:
              print("⚠️ API /predict: Received empty JSON data")
@@ -68,39 +65,39 @@ def predict():
             print(f"⚠️ API /predict: Invalid URL received: {url_input}")
             return jsonify({"error": "Invalid URL provided"}), 400
 
-        # --- Log the URL being processed ---
         print(f"✅ API /predict: Processing URL: {url_input}")
 
-        # Rule-based detection (keep this simple for now)
         rule_data = phish_detect.rule_score(url_input) 
+        ml_label, ml_conf, ml_features_np = phish_detect.ml_predict(url_input, _pipeline) # Get NumPy array
         
-        # ML prediction
-        ml_label, ml_conf, ml_features = phish_detect.ml_predict(url_input, _pipeline)
+        # --- THIS IS THE FIX ---
+        # Convert the NumPy array to a standard Python list
+        ml_features_list = ml_features_np.tolist() if isinstance(ml_features_np, np.ndarray) else []
+        # -----------------------
         
-        # --- Log the prediction result ---
         print(f"✅ API /predict: Prediction result: {ml_label} ({ml_conf}%)")
         
         return jsonify({
             "url": url_input,
-            "rule_label": rule_data.get('label', 'N/A'), # Use .get for safety
+            "rule_label": rule_data.get('label', 'N/A'),
             "rule_score": rule_data.get('score', 0),
             "ml_label": ml_label,
             "ml_conf": ml_conf,
-            "features_ml": ml_features
+            "features_ml": ml_features_list # Pass the list to jsonify
         })
         
-    except Exception as e: # --- ADDED EXCEPT BLOCK ---
-        # Log the exact error causing the 500 crash
+    except Exception as e: 
         print(f"💥 API /predict CRASHED: {e}")
-        traceback.print_exc() # Print detailed traceback to Render logs
+        traceback.print_exc() 
         return jsonify({"error": "Internal Server Error during prediction"}), 500
 
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     # ... (Your existing index route - NO CHANGES NEEDED) ...
+    # Make sure it also converts numpy array if calling predict directly
     result = None; ml_label = None; ml_conf = None; highlights = None
-    use_ml = False; error_msg = None; ml_features = []
+    use_ml = False; error_msg = None; ml_features_list = [] # Initialize as list
     if request.method == "POST":
         url_input = request.form.get("url_input", "").strip()
         use_ml = "use_ml" in request.form
@@ -110,7 +107,10 @@ def index():
             result = phish_detect.rule_score(url_input)
             highlights = phish_detect.highlight_suspicious_parts(url_input)
             if use_ml:
-                ml_label, ml_conf, ml_features = phish_detect.ml_predict(url_input, _pipeline)
+                ml_label, ml_conf, ml_features_np = phish_detect.ml_predict(url_input, _pipeline)
+                # Convert numpy array to list for template
+                ml_features_list = ml_features_np.tolist() if isinstance(ml_features_np, np.ndarray) else []
+
             entry = {"time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "url": url_input, "rule_label": result['label'],
                      "ml_label": ml_label if ml_label is not None else "n/a", "ml_conf": ml_conf if ml_conf is not None else 0}
             HISTORY.insert(0, entry); 
@@ -129,15 +129,16 @@ def index():
     history_ml_labels = [1 if h.get("ml_label")=="Phishing" else 0 for h in HISTORY]
     history_times_json = json.dumps(history_times); history_rule_labels_json = json.dumps(history_rule_labels)
     history_ml_labels_json = json.dumps(history_ml_labels)
+    # Pass the list to the template
     return render_template(
         "index.html", result=result, ml_label=ml_label, ml_conf=ml_conf, highlights=highlights, history=HISTORY, total=total,
         phish_count=phish_count, ml_phish=ml_phish, use_ml=use_ml, history_times_json=history_times_json,
         history_rule_labels_json=history_rule_labels_json, history_ml_labels_json=history_ml_labels_json,
-        error_msg=error_msg, ml_features=ml_features
+        error_msg=error_msg, ml_features=ml_features_list # Pass list
     )
 
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8000))
     # Remove debug=True for production
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port) # Removed debug=True
