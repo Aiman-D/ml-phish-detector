@@ -22,7 +22,7 @@ The ML model is trained on the PhiUSIIL dataset using 7 carefully selected, ligh
 * **Analysis History:** Keeps track of recent URL scans in the web interface.
 * **CSV Download:** Allows users to download their scan history.
 * **API Endpoint:** Provides a `/predict` endpoint for programmatic URL analysis.
-* **Browser Extension:** A simple Chrome extension that calls the live API to check the current tab's URL in real-time. \
+* **Browser Extension:** A simple Chrome extension that calls the live API to check the current tab's URL in real-time. 
 
 ---
 
@@ -41,7 +41,7 @@ The ML model is trained on the PhiUSIIL dataset using 7 carefully selected, ligh
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/Aiman-D/ml-phish-detector
-    cd your-repo-name
+    cd ml-phish-detector
     ```
 
 2.  **Create and activate a virtual environment:**
@@ -83,15 +83,20 @@ The machine learning model (`model.pkl`) is generated using the `train_model.py`
 
 To retrain the model:
 ```bash
-python3 train_model.py --train_csv data/PhiUSIIL_Phishing_URL_Dataset.csv --out_model data/model.pkl
+python3 train_model.py--train_csv data/PhiUSIIL_Phishing_URL_Dataset.csv --out_model data/model.pkl
+```
+---
 
-### **Sample Data Generation**
+## **Sample Data Generation**
 
 The `sample_data_generator.py` script (if included) can be used to create smaller subsets of the main dataset (e.g., `train_small.csv`, `real_dataset.csv`). This is useful for faster local testing, debugging feature extraction, or quick model training iterations without processing the full large dataset.
 
 Example Usage (Modify script as needed):
 ```bash
 python3 sample_data_generator.py --input_csv data/PhiUSIIL_Phishing_URL_Dataset.csv --output_csv data/train_small.csv --num_rows 1000
+```
+
+---
 
 ## **Browser Extension**
 
